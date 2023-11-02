@@ -2,6 +2,8 @@ package org.hanin.bgkata
 
 import org.hanin.bgkata.ReadyToPlay.*
 import kotlin.math.max
+import kotlin.random.Random
+import kotlin.random.nextInt
 
 class Game private constructor(
     val players: List<Player>,
@@ -104,7 +106,15 @@ class Game private constructor(
                 Player("player 1", PlayerCards()),
                 Player("player 2", PlayerCards()),
             ),
-            Deck((1..52).map { Card(it) }),
+            Deck(
+                CardRace.entries.flatMap { race ->
+                    (1..5).map { Card(it, race, CardRank.SOLDIER) } +
+                        (1..4).map { Card(it, race, CardRank.VETERAN) } +
+                        (1..3).map { Card(it, race, CardRank.COMMANDER) } +
+                        (1..1).map { Card(it, race, CardRank.LORD) }
+                }
+                    .shuffled(),
+            ),
             Discard(),
             GameRounds(listOf()),
         )
@@ -164,10 +174,67 @@ enum class ReadyToPlay {
     WAIT_FOR_BATTLE,
 }
 
-data class Card(val id: Int)
+fun List<Card>.groupBonus() = max(size - 1, 0)
+fun List<Card>.attackForce() = sumOf { it.attackForce(this) } + groupBonus()
+fun List<Card>.defendForce() = sumOf { it.defendForce(this) } + groupBonus()
+
+data class Card(val num: Int, val race: CardRace, val rank: CardRank) {
+    fun attackForce(cards: List<Card>) = rank.force + race.attackBonus(cards)
+    fun defendForce(cards: List<Card>) = rank.force + race.defendBonus(cards)
+}
+
+enum class CardRace {
+    DWARF {
+        override fun defendBonus(cards: List<Card>): Int = 1
+    },
+    ELF {
+        override fun healBonus(cards: List<Card>): Int = 1
+    },
+    GOBLIN {
+        override fun attackBonus(cards: List<Card>): Int = if (cards.filter { it.race == GOBLIN }.size >= 2) 1 else 0
+        override fun defendBonus(cards: List<Card>): Int = if (cards.filter { it.race == GOBLIN }.size >= 2) 1 else 0
+    },
+    ORC {
+        override fun attackBonus(cards: List<Card>): Int = 1
+    }, ;
+
+    open fun attackBonus(cards: List<Card>): Int = 0
+    open fun defendBonus(cards: List<Card>): Int = 0
+    open fun healBonus(cards: List<Card>): Int = 0
+}
+
+enum class CardRank(val force: Int) {
+    SOLDIER(2),
+    VETERAN(3),
+    COMMANDER(4),
+    LORD(5),
+}
 
 class Deck(val cards: List<Card> = listOf()) {
     fun drawCards(count: Int): Pair<Deck, List<Card>> = Deck(cards.drop(count)) to cards.take(count)
 }
 
 class Discard(val cards: List<Card> = listOf())
+
+class Fight(
+    val attack: List<Card>,
+    val defense: List<Card>,
+    val attackDiceRoll: Int = 0,
+    val defendDiceRoll: Int = 0,
+) {
+    fun rollAttack(attackDiceRoll: Int = Random.nextInt(1..6)) =
+        Fight(attack, defense, attackDiceRoll, defendDiceRoll)
+
+    fun rollDefend(defendDiceRoll: Int = Random.nextInt(1..6)) =
+        Fight(attack, defense, attackDiceRoll, defendDiceRoll)
+
+    fun damages(): Int = checkDices().computeDamages()
+
+    private fun computeDamages(): Int =
+        max(attack.attackForce() + attackDiceRoll - (defense.defendForce() + defendDiceRoll), 0)
+
+    private fun checkDices(): Fight = this.also {
+        if (attackDiceRoll == 0) throw IllegalStateException("you must roll attack dice before a fight")
+        if (defendDiceRoll == 0) throw IllegalStateException("you must roll defend dice before a fight")
+    }
+}

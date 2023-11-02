@@ -1,5 +1,7 @@
 package org.hanin.bgkata
 
+import org.hanin.bgkata.CardRace.*
+import org.hanin.bgkata.CardRank.*
 import org.hanin.bgkata.ReadyToPlay.*
 import org.junit.jupiter.api.Test
 import strikt.api.expectCatching
@@ -150,6 +152,84 @@ class GameTest {
                 }
             }
     }
+
+    @Test
+    fun `should compute attack forces`() {
+        expectThat(listOf<Card>()).get { attackForce() }.isEqualTo(0)
+        expectThat(listOf(Card(1, DWARF, SOLDIER))).get { attackForce() }.isEqualTo(2)
+        expectThat(listOf(Card(1, DWARF, VETERAN))).get { attackForce() }.isEqualTo(3)
+        expectThat(listOf(Card(1, DWARF, COMMANDER))).get { attackForce() }.isEqualTo(4)
+        expectThat(listOf(Card(1, DWARF, LORD))).get { attackForce() }.isEqualTo(5)
+
+        expectThat(listOf(Card(1, ORC, SOLDIER))).get { attackForce() }.isEqualTo(3)
+        expectThat(listOf(Card(1, ORC, VETERAN))).get { attackForce() }.isEqualTo(4)
+
+        expectThat(
+            listOf(
+                Card(1, ORC, VETERAN), // 3 + 1
+                Card(1, GOBLIN, COMMANDER), // 4
+            ), // group bonus: 1
+        ).get { attackForce() }.isEqualTo(9)
+
+        expectThat(
+            listOf(
+                Card(1, ORC, VETERAN), // 3 + 1
+                Card(1, GOBLIN, COMMANDER), // 4 + 1
+                Card(2, GOBLIN, COMMANDER), // 4 + 1
+            ), // group bonus: 2
+        ).get { attackForce() }.isEqualTo(16)
+    }
+
+    @Test
+    fun `should compute defend forces`() {
+        expectThat(listOf<Card>()).get { defendForce() }.isEqualTo(0)
+        expectThat(listOf(Card(1, DWARF, SOLDIER))).get { defendForce() }.isEqualTo(3)
+        expectThat(listOf(Card(1, DWARF, VETERAN))).get { defendForce() }.isEqualTo(4)
+        expectThat(listOf(Card(1, DWARF, COMMANDER))).get { defendForce() }.isEqualTo(5)
+        expectThat(listOf(Card(1, DWARF, LORD))).get { defendForce() }.isEqualTo(6)
+
+        expectThat(listOf(Card(1, ORC, SOLDIER))).get { defendForce() }.isEqualTo(2)
+        expectThat(listOf(Card(1, ORC, VETERAN))).get { defendForce() }.isEqualTo(3)
+
+        expectThat(
+            listOf(
+                Card(1, ORC, VETERAN), // 3
+                Card(1, GOBLIN, COMMANDER), // 4
+            ), // group bonus: 1
+        ).get { defendForce() }.isEqualTo(8)
+
+        expectThat(
+            listOf(
+                Card(1, ORC, VETERAN), // 3
+                Card(1, GOBLIN, COMMANDER), // 4 + 1
+                Card(2, GOBLIN, COMMANDER), // 4 + 1
+            ), // group bonus: 2
+        ).get { defendForce() }.isEqualTo(15)
+    }
+
+    @Test
+    fun `should fight make damages`() {
+        expectThat(
+            Fight(
+                listOf(Card(1, ORC, SOLDIER)),
+                listOf(Card(1, DWARF, SOLDIER)),
+            ).rollAttack(4)
+                .rollDefend(2),
+        ).get { damages() }
+            .isEqualTo(2)
+    }
+
+    @Test
+    fun `should fight make no damages`() {
+        expectThat(
+            Fight(
+                listOf(Card(1, ORC, SOLDIER)),
+                listOf(Card(1, DWARF, SOLDIER)),
+            ).rollAttack(2)
+                .rollDefend(4),
+        ).get { damages() }
+            .isEqualTo(0)
+    }
 }
 
 private fun Game.attackWith(playerName: String, cardsCount: Int): Game {
@@ -158,6 +238,7 @@ private fun Game.attackWith(playerName: String, cardsCount: Int): Game {
     val cardsToPlay = player.cards.hand.take(cardsCount)
     return playAttack(player, cardsToPlay)
 }
+
 private fun Game.defendWith(playerName: String, cardsCount: Int): Game {
     val player = players.first { it.readyToPlay == DEFEND }
     expectThat(player.name).describedAs("player to defend").isEqualTo(playerName)
