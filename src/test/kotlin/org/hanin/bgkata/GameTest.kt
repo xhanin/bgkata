@@ -255,6 +255,36 @@ class GameTest {
                 expectThat(round.playerInRound("player 2")).get { life }.isEqualTo(17)
             }
     }
+
+    @Test
+    fun `should run full battle`() {
+        GameRound(
+            listOf(
+                Player("player 1", 20, PlayerCards(hand = (1..5).map { Card(it, ORC, SOLDIER) })),
+                Player("player 2", 20, PlayerCards(hand = (1..5).map { Card(it, ELF, SOLDIER) })),
+            ),
+        ).start()
+            .attackWith("player 1", 3)
+            .defendWith("player 2", 3)
+            .attackWith("player 2", 2)
+            .defendWith("player 1", 2)
+            .fight { fight: Fight ->
+                fight.rollAttack(1).rollDefend(1)
+                // attack: 11 + 1
+                // defend: 8 + 1
+                // 3 damages
+            }
+            .fight { fight: Fight ->
+                fight.rollAttack(6).rollDefend(1)
+                // attack: 5 + 6
+                // defend: 5 + 1
+                // 5 damages
+            }
+            .also { round: GameRound ->
+                expectThat(round.playerInRound("player 1")).get { life }.isEqualTo(15)
+                expectThat(round.playerInRound("player 2")).get { life }.isEqualTo(17)
+            }
+    }
 }
 
 private fun Game.attackWith(playerName: String, cardsCount: Int): Game {

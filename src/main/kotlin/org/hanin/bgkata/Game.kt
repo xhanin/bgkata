@@ -163,7 +163,9 @@ class GameRound(
     private fun withNewFight(fight: Fight) = GameRound(players, actions, fights + fight)
 
     private fun nextOpponents(): Pair<Player, Player> {
-        return players[0] to players[1]
+        val nextAttackingPlayer = players.first { player -> fights.none { it.attackingPlayerName == player.name } }
+        val nextDefendingPlayer = players[(players.indexOf(nextAttackingPlayer) + 1) % players.size]
+        return nextAttackingPlayer to nextDefendingPlayer
     }
 
     private fun isBattleOver(): Boolean = players.all { player ->
