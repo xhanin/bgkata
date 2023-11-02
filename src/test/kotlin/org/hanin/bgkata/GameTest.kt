@@ -211,6 +211,8 @@ class GameTest {
     fun `should fight make damages`() {
         expectThat(
             Fight(
+                "player 1",
+                "player 2",
                 listOf(Card(1, ORC, SOLDIER)),
                 listOf(Card(1, DWARF, SOLDIER)),
             ).rollAttack(4)
@@ -223,12 +225,35 @@ class GameTest {
     fun `should fight make no damages`() {
         expectThat(
             Fight(
+                "player 1",
+                "player 2",
                 listOf(Card(1, ORC, SOLDIER)),
                 listOf(Card(1, DWARF, SOLDIER)),
             ).rollAttack(2)
                 .rollDefend(4),
         ).get { damages() }
             .isEqualTo(0)
+    }
+
+    @Test
+    fun `should first fight in battle make damages`() {
+        GameRound(
+            listOf(
+                Player("player 1", 20, PlayerCards(hand = (1..5).map { Card(it, ORC, SOLDIER) })),
+                Player("player 2", 20, PlayerCards(hand = (1..5).map { Card(it, ELF, SOLDIER) })),
+            ),
+        ).start()
+            .attackWith("player 1", 3)
+            .defendWith("player 2", 3)
+            .attackWith("player 2", 2)
+            .defendWith("player 1", 2)
+            .fight { fight: Fight ->
+                fight.rollAttack(1).rollDefend(1)
+                // attack: 11 + 1
+                // defend: 8 + 1
+            }.also { round: GameRound ->
+                expectThat(round.playerInRound("player 2")).get { life }.isEqualTo(17)
+            }
     }
 }
 
@@ -239,7 +264,21 @@ private fun Game.attackWith(playerName: String, cardsCount: Int): Game {
     return playAttack(player, cardsToPlay)
 }
 
+private fun GameRound.attackWith(playerName: String, cardsCount: Int): GameRound {
+    val player = players.first { it.readyToPlay == ATTACK }
+    expectThat(player.name).describedAs("player to attack").isEqualTo(playerName)
+    val cardsToPlay = player.cards.hand.take(cardsCount)
+    return playAttack(player, cardsToPlay)
+}
+
 private fun Game.defendWith(playerName: String, cardsCount: Int): Game {
+    val player = players.first { it.readyToPlay == DEFEND }
+    expectThat(player.name).describedAs("player to defend").isEqualTo(playerName)
+    val cardsToPlay = player.cards.hand.take(cardsCount)
+    return playDefend(player, cardsToPlay)
+}
+
+private fun GameRound.defendWith(playerName: String, cardsCount: Int): GameRound {
     val player = players.first { it.readyToPlay == DEFEND }
     expectThat(player.name).describedAs("player to defend").isEqualTo(playerName)
     val cardsToPlay = player.cards.hand.take(cardsCount)

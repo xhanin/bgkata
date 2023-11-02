@@ -14,68 +14,17 @@ class Game private constructor(
     val dealCardsPerPlayer: Int = 5
 
     fun start(): Game = startNewRound()
-    fun startNewRound(): Game = newRound().deal().selectPlayer(players[0], ATTACK)
+    fun startNewRound(): Game = deal().newRound()
 
-    private fun newRound() = withRounds(rounds.newRound())
+    private fun newRound() = withRounds(rounds.startNewRound(players))
 
     fun playAttack(player: Player, cards: List<Card>): Game {
-        val playerInGame = playerInGame(player)
-            .checkCanPlayCards(cards)
-            .checkTurn(ATTACK)
-        return withPlayer(playerInGame.prepareAttack(cards))
-            .withRounds(rounds.played(player, ATTACK))
-            .selectPlayer(nextPlayer(player), DEFEND)
+        return withRounds(rounds.onCurrentRound { it.playAttack(player, cards) })
     }
 
     fun playDefend(player: Player, cards: List<Card>): Game {
-        val playerInGame = playerInGame(player)
-            .checkCanPlayCards(cards)
-            .checkTurn(DEFEND)
-        return withPlayer(playerInGame.prepareDefend(cards))
-            .withRounds(rounds.played(player, DEFEND))
-            .let { game ->
-                if (game.isPreparedForBattle()) {
-                    game.withPlayers(game.players.map { it.readyToPlay(WAIT_FOR_BATTLE) })
-                } else {
-                    game.selectPlayer(player, ATTACK)
-                }
-            }
+        return withRounds(rounds.onCurrentRound { it.playDefend(player, cards) })
     }
-
-    private fun isPreparedForBattle(): Boolean = players.all { player ->
-        rounds.currentRound().actions
-            .filter { it.playerName == player.name }
-            .map { it.action }
-            .toSet()
-            .containsAll(setOf(ATTACK, DEFEND))
-    }
-
-    private fun nextPlayer(player: Player): Player =
-        players.indexOfFirst { it.name == player.name }
-            .let { (it + 1) % players.size }
-            .let { players[it] }
-
-    private fun withPlayer(player: Player): Game = withPlayers(
-        players.map {
-            if (it.name == player.name) {
-                player
-            } else {
-                it
-            }
-        },
-    )
-
-    private fun selectPlayer(selectedPlayer: Player, readyToPlay: ReadyToPlay): Game = withPlayers(
-        players.map { player ->
-            player.readyToPlay(
-                if (player.name == selectedPlayer.name) {
-                    readyToPlay
-                } else {
-                    NOT_READY_TO_PLAY
-                },
-            )
-        },
-    )
 
     private fun deal(): Game {
         var game = this
@@ -95,7 +44,7 @@ class Game private constructor(
     }
 
     private fun withPlayers(players: List<Player>) = Game(players, deck, discard, rounds)
-    private fun withRounds(rounds: GameRounds) = Game(players, deck, discard, rounds)
+    private fun withRounds(rounds: GameRounds) = Game(rounds.currentRound().players, deck, discard, rounds)
     fun playerInGame(player: Player): Player = playerInGame(player.name)
     fun playerInGame(player: String): Player = players.firstOrNull { it.name == player }
         ?: throw IllegalArgumentException("unknown player $player")
@@ -103,8 +52,8 @@ class Game private constructor(
     companion object {
         fun init(): Game = Game(
             listOf(
-                Player("player 1", PlayerCards()),
-                Player("player 2", PlayerCards()),
+                Player("player 1", 20, PlayerCards()),
+                Player("player 2", 20, PlayerCards()),
             ),
             Deck(
                 CardRace.entries.flatMap { race ->
@@ -121,12 +70,17 @@ class Game private constructor(
     }
 }
 
-class Player(val name: String, val cards: PlayerCards, val readyToPlay: ReadyToPlay = NOT_READY_TO_PLAY) {
+class Player(
+    val name: String,
+    val life: Int,
+    val cards: PlayerCards,
+    val readyToPlay: ReadyToPlay = NOT_READY_TO_PLAY,
+) {
 
-    fun takeCards(newCards: List<Card>) = Player(name, cards.takeCards(newCards), readyToPlay)
-    fun readyToPlay(readyToPlay: ReadyToPlay) = Player(name, cards, readyToPlay)
-    fun prepareAttack(cards: List<Card>): Player = Player(name, this.cards.prepareAttack(cards), readyToPlay)
-    fun prepareDefend(cards: List<Card>): Player = Player(name, this.cards.prepareDefend(cards), readyToPlay)
+    fun takeCards(newCards: List<Card>) = Player(name, life, cards.takeCards(newCards), readyToPlay)
+    fun readyToPlay(readyToPlay: ReadyToPlay) = Player(name, life, cards, readyToPlay)
+    fun prepareAttack(cards: List<Card>): Player = Player(name, life, this.cards.prepareAttack(cards), readyToPlay)
+    fun prepareDefend(cards: List<Card>): Player = Player(name, life, this.cards.prepareDefend(cards), readyToPlay)
     fun checkCanPlayCards(cards: List<Card>): Player = this.also {
         (cards - it.cards.hand).also {
             if (it.isNotEmpty()) {
@@ -140,19 +94,123 @@ class Player(val name: String, val cards: PlayerCards, val readyToPlay: ReadyToP
             throw IllegalStateException("player $name can't play $turn now!")
         }
     }
+
+    fun damages(damages: Int) = Player(name, life - damages, cards, readyToPlay)
 }
 
 class GameRounds(val rounds: List<GameRound>) {
-    fun newRound() = GameRounds(rounds + GameRound(listOf()))
+    fun startNewRound(players: List<Player>) = GameRounds(rounds + GameRound(players).start())
 
     fun currentRound() = rounds.lastOrNull() ?: throw IllegalStateException("no current round - game not started")
 
-    fun played(player: Player, action: ReadyToPlay): GameRounds =
-        GameRounds(rounds.dropLast(1) + currentRound().played(player, action))
+    fun onCurrentRound(action: (GameRound) -> GameRound) =
+        GameRounds(rounds.dropLast(1) + action(currentRound()))
 }
 
-class GameRound(val actions: List<PlayerAction>) {
-    fun played(player: Player, action: ReadyToPlay) = GameRound(actions + PlayerAction(player.name, action))
+class GameRound(
+    val players: List<Player>,
+    val actions: List<PlayerAction> = listOf(),
+    val fights: List<Fight> = listOf(),
+) {
+
+    fun start() = selectPlayer(players.first(), ATTACK)
+
+    fun playAttack(player: Player, cards: List<Card>): GameRound {
+        val playerInGame = playerInRound(player.name)
+            .checkCanPlayCards(cards)
+            .checkTurn(ATTACK)
+        return withPlayer(playerInGame.prepareAttack(cards))
+            .played(player, ATTACK)
+            .selectPlayer(nextPlayer(player), DEFEND)
+    }
+
+    fun playDefend(player: Player, cards: List<Card>): GameRound {
+        val playerInGame = playerInRound(player.name)
+            .checkCanPlayCards(cards)
+            .checkTurn(DEFEND)
+        return withPlayer(playerInGame.prepareDefend(cards))
+            .played(player, DEFEND)
+            .let { game ->
+                if (game.isPreparedForBattle()) {
+                    game.withPlayers(game.players.map { it.readyToPlay(WAIT_FOR_BATTLE) })
+                } else {
+                    game.selectPlayer(player, ATTACK)
+                }
+            }
+    }
+
+    fun fight(rollDices: (Fight) -> Fight = { it.rollAttack().rollDefend() }): GameRound {
+        if (!isPreparedForBattle()) {
+            throw IllegalStateException("can't start fight when battle is not prepared!")
+        }
+        if (isBattleOver()) {
+            throw IllegalStateException("can't start fight when battle is over!")
+        }
+        val (attackingPlayer, defendingPlayer) = nextOpponents()
+
+        val fight = Fight(
+            attackingPlayer.name,
+            defendingPlayer.name,
+            attackingPlayer.cards.attack,
+            defendingPlayer.cards.defense,
+        )
+            .let(rollDices)
+
+        return withNewFight(fight)
+            .withPlayer(defendingPlayer.damages(fight.damages()))
+    }
+
+    private fun withNewFight(fight: Fight) = GameRound(players, actions, fights + fight)
+
+    private fun nextOpponents(): Pair<Player, Player> {
+        return players[0] to players[1]
+    }
+
+    private fun isBattleOver(): Boolean = players.all { player ->
+        fights.any { it.attackingPlayerName == player.name }
+    }
+
+    private fun isPreparedForBattle(): Boolean = players.all { player ->
+        actions
+            .filter { it.playerName == player.name }
+            .map { it.action }
+            .toSet()
+            .containsAll(setOf(ATTACK, DEFEND))
+    }
+
+    private fun selectPlayer(selectedPlayer: Player, readyToPlay: ReadyToPlay): GameRound = withPlayers(
+        players.map { player ->
+            player.readyToPlay(
+                if (player.name == selectedPlayer.name) {
+                    readyToPlay
+                } else {
+                    NOT_READY_TO_PLAY
+                },
+            )
+        },
+    )
+
+    private fun nextPlayer(player: Player): Player =
+        players.indexOfFirst { it.name == player.name }
+            .let { (it + 1) % players.size }
+            .let { players[it] }
+
+    private fun withPlayer(player: Player): GameRound = withPlayers(
+        players.map {
+            if (it.name == player.name) {
+                player
+            } else {
+                it
+            }
+        },
+    )
+
+    private fun withPlayers(players: List<Player>) = GameRound(players, actions, fights)
+    private fun played(player: Player, action: ReadyToPlay) =
+        GameRound(players, actions + PlayerAction(player.name, action), fights)
+
+    fun playerInRound(playerName: String): Player =
+        players.firstOrNull { it.name == playerName } ?: throw IllegalArgumentException("unknown player $playerName")
 }
 
 class PlayerAction(val playerName: String, val action: ReadyToPlay)
@@ -217,16 +275,18 @@ class Deck(val cards: List<Card> = listOf()) {
 class Discard(val cards: List<Card> = listOf())
 
 class Fight(
+    val attackingPlayerName: String,
+    val defendingPlayerName: String,
     val attack: List<Card>,
     val defense: List<Card>,
     val attackDiceRoll: Int = 0,
     val defendDiceRoll: Int = 0,
 ) {
     fun rollAttack(attackDiceRoll: Int = Random.nextInt(1..6)) =
-        Fight(attack, defense, attackDiceRoll, defendDiceRoll)
+        Fight(attackingPlayerName, defendingPlayerName, attack, defense, attackDiceRoll, defendDiceRoll)
 
     fun rollDefend(defendDiceRoll: Int = Random.nextInt(1..6)) =
-        Fight(attack, defense, attackDiceRoll, defendDiceRoll)
+        Fight(attackingPlayerName, defendingPlayerName, attack, defense, attackDiceRoll, defendDiceRoll)
 
     fun damages(): Int = checkDices().computeDamages()
 
