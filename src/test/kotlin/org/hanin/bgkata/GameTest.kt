@@ -285,6 +285,30 @@ class GameTest {
                 expectThat(round.playerInRound("player 2")).get { life }.isEqualTo(17)
             }
     }
+
+    @Test
+    fun `should run a round and go to next`() {
+        Game.init().start()
+            .attackWith("player 1", 5)
+            .defendWith("player 2", 0)
+            .attackWith("player 2", 0)
+            .defendWith("player 1", 0)
+            .fight()
+            .fight()
+            .nextRound()
+            .also { game ->
+                expectThat(game.playerInGame("player 1").cards).and {
+                    get { hand }.hasSize(5)
+                    get { attack }.isEmpty()
+                    get { defense }.isEmpty()
+                }
+                expectThat(game.playerInGame("player 2").cards).and {
+                    get { hand }.hasSize(5)
+                    get { attack }.isEmpty()
+                    get { defense }.isEmpty()
+                }
+            }
+    }
 }
 
 private fun Game.attackWith(playerName: String, cardsCount: Int): Game {

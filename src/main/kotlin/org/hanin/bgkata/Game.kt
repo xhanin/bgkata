@@ -14,9 +14,7 @@ class Game private constructor(
     val dealCardsPerPlayer: Int = 5
 
     fun start(): Game = startNewRound()
-    fun startNewRound(): Game = deal().newRound()
-
-    private fun newRound() = withRounds(rounds.startNewRound(players))
+    private fun startNewRound() = deal().let { it.withRounds(it.rounds.startNewRound(it.players)) }
 
     fun playAttack(player: Player, cards: List<Card>): Game {
         return withRounds(rounds.onCurrentRound { it.playAttack(player, cards) })
@@ -25,6 +23,10 @@ class Game private constructor(
     fun playDefend(player: Player, cards: List<Card>): Game {
         return withRounds(rounds.onCurrentRound { it.playDefend(player, cards) })
     }
+
+    fun fight() = withRounds(rounds.onCurrentRound { it.fight() })
+
+    fun nextRound(): Game = withRounds(rounds.onCurrentRound { it.finishBattle() }).startNewRound()
 
     private fun deal(): Game {
         var game = this
@@ -96,6 +98,7 @@ class Player(
     }
 
     fun damages(damages: Int) = Player(name, life - damages, cards, readyToPlay)
+    fun discardCards() = Player(name, life, PlayerCards())
 }
 
 class GameRounds(val rounds: List<GameRound>) {
@@ -160,6 +163,13 @@ class GameRound(
             .withPlayer(defendingPlayer.damages(fight.damages()))
     }
 
+    fun finishBattle(): GameRound {
+        if (!isBattleOver()) {
+            throw IllegalStateException("can't finish battle when it is not over!")
+        }
+        return withPlayers(players.map { it.discardCards() })
+    }
+
     private fun withNewFight(fight: Fight) = GameRound(players, actions, fights + fight)
 
     private fun nextOpponents(): Pair<Player, Player> {
@@ -206,8 +216,8 @@ class GameRound(
             }
         },
     )
-
     private fun withPlayers(players: List<Player>) = GameRound(players, actions, fights)
+
     private fun played(player: Player, action: ReadyToPlay) =
         GameRound(players, actions + PlayerAction(player.name, action), fights)
 
